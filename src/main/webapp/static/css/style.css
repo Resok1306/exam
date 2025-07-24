@@ -1,0 +1,9 @@
+@charset "UTF-8";
+.password-confirm-wrapper {
+	display: flex;
+	align-items: center;
+}
+.password-confirm-wrapper input {
+	flex: 1;
+	margin-right: 8px;
+}
