@@ -1,0 +1,268 @@
+컨트롤러 원본
+package bag;
+
+import java.util.List;
+
+import javax.servlet.http.HttpSession;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+@Controller
+@RequestMapping("bag")
+public class BagController {
+	@Autowired
+	private BagService service;
+	 
+	@GetMapping("/bagform")
+	public String bagForm(Model model, HttpSession session) {
+		try {
+			Integer u_id = (Integer) session.getAttribute("userId");
+	        //실행되는지 확인용으로 u_id는 1로 고정
+	        if (u_id == null)
+	        	return "redirect:/login/loginform";
+	        
+	        System.out.println("u_id = " + u_id);
+	        
+	        List<BagBook> bagItems = service.getBagItems(u_id);
+	        System.out.println(bagItems.toString());
+
+	        int totalPrice = service.totalPrice(u_id);
+	        System.out.println(totalPrice);
+	        
+	        model.addAttribute("bagItems", bagItems);
+	        model.addAttribute("totalPrice", totalPrice);
+
+	        return "bagform"; // your JSP file name without extension
+		}catch(Exception e) {
+			e.printStackTrace();
+			return "error";
+		}
+	}
+
+	@PostMapping("/add")
+	public String addToBag(@RequestParam("b_id") int b_id,
+	                       @RequestParam(value = "quantity", defaultValue = "1") int quantity,
+	                       HttpSession session) {
+	    try {
+	        Integer u_id = (Integer) session.getAttribute("userId");
+	        if (u_id == null) return "redirect:/login/loginform";
+
+	        service.addOrUpdateBag(u_id, b_id, quantity);
+	        return "redirect:/bag/bagform";
+	    } catch (Exception e) {
+	        e.printStackTrace();
+	        return "error";
+	    }
+	}
+	/*
+ CREATE TABLE bag (
+    u_id NUMBER,        -- 사용자
+    b_id NUMBER,        -- 책
+    quantity NUMBER,    -- 수량
+    PRIMARY KEY (u_id, b_id),
+    FOREIGN KEY (u_id) REFERENCES users(u_id),
+    FOREIGN KEY (b_id) REFERENCES book(b_id)
+);
+INSERT INTO bag (u_id, b_id, quantity) VALUES (1, 1, 2);
+INSERT INTO bag (u_id, b_id, quantity) VALUES (1, 2, 3);
+확인용 테이블
+	*/
+	    @PostMapping("/bagdelete")
+	    public String deleteItem(@RequestParam int b_id, HttpSession session) {
+	        Integer userId = (Integer) session.getAttribute("userId");
+	        if (userId != null) {
+	            service.deleteBag(userId, b_id);
+	        }
+	        return "redirect:/bag/bagform";
+	    }
+}
+서비스원본
+package bag;
+
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service("bagService")
+public class BagService {
+	@Autowired
+	BagMapper mapper;
+	
+	public List<BagBook> getBagItems(int u_id) {
+        return mapper.findBagItemsByUserId(u_id);
+    }
+	
+	public int totalPrice(int u_id) {
+		return mapper.totalPrice(u_id);
+	}
+	public void deleteBag(int u_id, int b_id) {
+		mapper.deleteFromBag(u_id, b_id);
+	}
+	
+	public void addOrUpdateBag(int u_id, int b_id, int quantity) {
+	    Integer count = mapper.countItem(u_id, b_id);
+	    if (count != null && count > 0) {
+	        mapper.updateQty(u_id, b_id, quantity);
+	    } else {
+	        mapper.insertBag(u_id, b_id, quantity);
+	    }
+	}
+}
+매퍼원본
+package bag;
+
+import java.util.List;
+
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+@Mapper
+public interface BagMapper {
+	@Select("SELECT ba.b_id, b.title, b.pic, ba.quantity, b.price FROM bag ba JOIN book b ON ba.b_id = b.b_id WHERE ba.u_id = #{u_id}")
+    List<BagBook> findBagItemsByUserId(@Param("u_id")int u_id);
+
+	@Select("SELECT NVL(SUM(ba.quantity * b.price), 0) "
+			+ "FROM bag ba "
+			+ "JOIN book b ON ba.b_id = b.b_id "
+			+ "WHERE ba.u_id = #{u_id}")
+    int totalPrice(@Param("u_id")int u_id);
+
+	@Delete("DELETE FROM bag "
+			+ "WHERE u_id = #{u_id} "
+			+ "AND b_id = #{b_id}")
+    void deleteFromBag(@Param("u_id") int userId, @Param("b_id") int b_id);
+	
+	@Select("SELECT COUNT(*) FROM bag WHERE u_id = #{u_id} AND b_id = #{b_id}")
+    Integer countItem(@Param("u_id") int u_id, @Param("b_id") int b_id);
+
+    // 장바구니에 새 항목 추가
+    @Insert("INSERT INTO bag (u_id, b_id, quantity) VALUES (#{u_id}, #{b_id}, #{quantity})")
+    void insertBag(@Param("u_id") int u_id, @Param("b_id") int b_id, @Param("quantity") int quantity);
+
+    // 장바구니 수량 업데이트 (기존 수량에 추가)
+    @Update("UPDATE bag SET quantity = quantity + #{quantity} WHERE u_id = #{u_id} AND b_id = #{b_id}")
+    void updateQty(@Param("u_id") int u_id, @Param("b_id") int b_id, @Param("quantity") int quantity);
+}
+bagform
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+<html>
+<head>
+    <title>장바구니</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <style>
+        .cart-card {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border-radius: 12px;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+
+        .cart-item {
+            border-bottom: 1px solid #dee2e6;
+            padding: 20px 0;
+        }
+
+        .cart-img {
+            width: 80px;
+            height: 120px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .cart-info {
+            flex: 1;
+            margin-left: 20px;
+        }
+
+        .cart-title {
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+        }
+
+        .price-cell {
+            text-align: right;
+            font-weight: 500;
+        }
+
+        .summary-box {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+
+        .order-btn {
+            float: right;
+        }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container mt-5 mb-5">
+    <div class="cart-card">
+        <h2 class="text-primary mb-4"><i class="fas fa-shopping-cart"></i> 내 장바구니</h2>
+
+        <c:choose>
+            <c:when test="${empty bagItems}">
+                <div class="alert alert-info">장바구니에 책이 없습니다.</div>
+            </c:when>
+            <c:otherwise>
+                <c:forEach var="book" items="${bagItems}">
+                    <div class="cart-item d-flex align-items-start">
+                        <img src="/images/book/${book.pic}" alt="책 이미지" class="cart-img">
+                        <div class="cart-info">
+                            <div class="cart-title">${book.title}</div>
+                            <div class="text-muted">수량: ${book.quantity}</div>
+                        </div>
+                        <div class="ms-auto text-end">
+                            <div class="price-cell">${book.price}원</div>
+                            <div class="price-cell small text-muted mt-1">합계: ${book.price * book.quantity}원</div>
+                            <form action="/bag/bagdelete" method="post" class="mt-2">
+                            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}" />
+                                <input type="hidden" name="b_id" value="${book.b_id}"/>
+                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                    <i class="fas fa-trash-alt"></i> 삭제
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </c:forEach>
+
+			      <!-- 총합 영역 -->
+			<div class="summary-box mt-4">
+			    <div class="d-flex justify-content-between align-items-center">
+			        <div class="fs-5"><strong>총합계</strong></div>
+			        <div class="fs-5 text-primary"><strong>${totalPrice}원</strong></div>
+			    </div>
+			    <form action="/pay" method="post" class="mt-3 text-end">
+			        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}" />
+			        <c:forEach var="book" items="${bagItems}">
+			            <input type="hidden" name="title" value="${book.title}">
+			            <input type="hidden" name="price" value="${book.price}">
+			            <input type="hidden" name="quantity" value="${book.quantity}">
+			        </c:forEach>
+			        <button type="submit" class="btn btn-success btn-lg">
+			            <i class="fas fa-credit-card"></i> 주문하기 
+			        </button>
+			    </form>
+			</div>
+
+            </c:otherwise>
+        </c:choose>
+    </div>
+</div>
+</body>
+</html>
